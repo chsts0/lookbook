@@ -1,0 +1,363 @@
+/* ДСГН ПСВТ TV · лукбук · логика мини аппа */
+(function () {
+  'use strict';
+
+  const LOOKS = window.LOOKS || [];
+  const PALETTE = ['#FFFFFF', '#FEFB54', '#01ACD0', '#75FB4E', '#E934F5', '#E83224', '#0001F2'];
+  const $ = (id) => document.getElementById(id);
+  const pad = (n) => String(n).padStart(2, '0');
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /* ---------------- Telegram ---------------- */
+  const tg = window.Telegram && window.Telegram.WebApp;
+  const inTG = !!(tg && tg.initData);
+
+  function tgSetup() {
+    if (!tg) return;
+    try {
+      tg.ready();
+      tg.expand();
+      if (tg.isVersionAtLeast('6.1')) { tg.setHeaderColor('#000000'); tg.setBackgroundColor('#000000'); }
+      if (tg.isVersionAtLeast('7.10')) tg.setBottomBarColor('#000000');
+      if (tg.isVersionAtLeast('7.7')) tg.disableVerticalSwipes();
+      const mobile = ['ios', 'android', 'android_x'].includes(tg.platform);
+      if (mobile && tg.isVersionAtLeast('8.0')) tg.requestFullscreen();
+      if (tg.isVersionAtLeast('6.1')) tg.BackButton.onClick(goBack);
+    } catch (e) { /* в браузере или старой версии телеги просто пропускаем */ }
+  }
+
+  const haptic = {
+    tap() { try { tg && tg.HapticFeedback && tg.HapticFeedback.selectionChanged(); } catch (e) {} },
+    bump() { try { tg && tg.HapticFeedback && tg.HapticFeedback.impactOccurred('light'); } catch (e) {} },
+  };
+
+  /* ---------------- утилиты цвета ---------------- */
+  function inkFor(hex) {
+    const n = parseInt(hex.slice(1), 16);
+    const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+    const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+    return lum > 0.3 ? '#000000' : '#FFFFFF';
+  }
+  function shade(hex, k) { // k < 1 темнее
+    const n = parseInt(hex.slice(1), 16);
+    const f = (v) => Math.max(0, Math.min(255, Math.round(v * k)));
+    return '#' + [(n >> 16) & 255, (n >> 8) & 255, n & 255].map(f).map((v) => v.toString(16).padStart(2, '0')).join('');
+  }
+  const photoSrc = (p) => (p ? (typeof p === 'string' ? p : p.src) : null);
+  const photoPos = (p) => (p && typeof p === 'object' && p.pos) ? p.pos : '50% 50%';
+
+  /* ---------------- хедер ---------------- */
+  function osd(status, channel) {
+    if (status != null) $('plate').textContent = status;
+    if (channel != null) $('chLabel').textContent = channel;
+  }
+
+  /* ---------------- навигация ---------------- */
+  const SCREENS = ['splash', 'cover', 'guide', 'channel'];
+  let stack = [];
+
+  function show(id) {
+    SCREENS.forEach((s) => $(s).classList.toggle('active', s === id));
+    const canBack = stack.length > 1;
+    if (inTG && tg.isVersionAtLeast('6.1')) {
+      canBack ? tg.BackButton.show() : tg.BackButton.hide();
+    } else {
+      $('backChip').classList.toggle('show', canBack);
+    }
+    if (id === 'cover') { osd('ON AIR', 'channel 1'); startTvCycle(); } else stopTvCycle();
+    if (id === 'guide') { osd('ТЕЛЕГИД', 'program'); renderGuide(); }
+  }
+  function go(id) { stack.push(id); show(id); }
+  function goBack() {
+    if (stack.length <= 1) return;
+    stack.pop();
+    const id = stack[stack.length - 1];
+    show(id);
+    if (id === 'channel') enterChannel(current, { signal: false });
+  }
+  $('backChip').addEventListener('click', goBack);
+
+  /* ---------------- 01 заставка ---------------- */
+  async function splash() {
+    osd('NO SIGNAL', 'channel 0');
+    const urls = [];
+    LOOKS.forEach((l) => ['full', 'd1', 'd2'].forEach((k) => { const s = photoSrc(l[k]); if (s) urls.push(s); }));
+    // сначала грузим первый канал, остальные догружаются фоном
+    const first = urls.slice(0, 3);
+    let done = 0;
+    const total = Math.max(first.length, 1);
+    const ring = $('ringFg'), pct = $('ringPct');
+    const CIRC = 364.4;
+    let shown = 0;
+    const setP = (p) => { ring.style.strokeDashoffset = String(CIRC * (1 - p)); pct.textContent = Math.round(p * 100) + '%'; };
+    const loads = first.map((u) => new Promise((res) => { const im = new Image(); im.onload = im.onerror = () => { done++; res(); }; im.src = u; }));
+    const t0 = performance.now();
+    const MIN = reduceMotion ? 300 : 1300;
+    await new Promise((resolve) => {
+      function tick(t) {
+        const real = first.length ? done / total : 1;
+        const timeP = Math.min(1, (t - t0) / MIN);
+        const target = Math.min(real, timeP);
+        shown += (target - shown) * 0.25;
+        if (target >= 1 && shown > 0.995) shown = 1;
+        setP(shown);
+        if (shown >= 1) resolve(); else requestAnimationFrame(tick);
+      }
+      requestAnimationFrame(tick);
+    });
+    await Promise.all(loads);
+    urls.slice(3).forEach((u) => { const im = new Image(); im.src = u; });
+    await sleep(180);
+  }
+
+  /* ---------------- 02 обложка ---------------- */
+  let tvTimer = null, tvIdx = 1;
+  function startTvCycle() {
+    if (tvTimer || reduceMotion) return;
+    tvTimer = setInterval(() => {
+      tvIdx = (tvIdx + 1) % PALETTE.length;
+      if (PALETTE[tvIdx] === '#FFFFFF' || PALETTE[tvIdx] === '#0001F2') tvIdx = (tvIdx + 1) % PALETTE.length;
+      document.documentElement.style.setProperty('--tv', PALETTE[tvIdx]);
+    }, 2400);
+  }
+  function stopTvCycle() { clearInterval(tvTimer); tvTimer = null; }
+
+  $('ctaWatch').addEventListener('click', () => { haptic.bump(); openChannel(0); });
+  $('toGuide').addEventListener('click', () => { haptic.tap(); go('guide'); });
+
+  /* ---------------- 03 телегид ---------------- */
+  let watched = -1;
+  function renderGuide() {
+    const list = $('guideList');
+    list.innerHTML = '';
+    LOOKS.forEach((l, i) => {
+      const li = document.createElement('li');
+      const src = photoSrc(l.full);
+      const live = i === (watched < 0 ? 0 : watched);
+      li.innerHTML =
+        `<button class="g-row" type="button" style="--c:${l.color}">
+          <span class="g-thumb">${src
+            ? `<img src="${src}" alt="" style="object-position:${photoPos(l.full)}" loading="lazy">`
+            : `<span class="ph" style="--ph:${l.color};color:${inkFor(l.color)}"><span class="ph-lbl">CH ${pad(i + 1)}</span></span>`}
+          </span>
+          <span class="g-text"><span class="g-ch">CH ${pad(i + 1)}</span><span class="g-name">${l.name}</span></span>
+          <span class="g-state ${live ? 'live' : ''}">${live ? '● ON AIR'
+            : '<svg viewBox="0 0 8 10" width="8" height="10" aria-hidden="true"><path d="M0 0l8 5-8 5z" fill="currentColor"/></svg>'}</span>
+        </button>`;
+      li.firstElementChild.addEventListener('click', () => { haptic.tap(); openChannel(i); });
+      list.appendChild(li);
+    });
+  }
+
+  /* ---------------- 04 канал ---------------- */
+  const stage = $('stage');
+  const frameMain = $('frameMain');
+  let current = 0;
+  let mainKey = 'full';
+  let cards = {};
+  let busy = false;
+
+  const LABELS = {
+    full: (i) => ({ big: `CH ${pad(i + 1)}`, lbl: 'ПОЛНЫЙ РОСТ' }),
+    d1: () => ({ big: '01', lbl: 'ДЕТАЛЬ 1' }),
+    d2: () => ({ big: '02', lbl: 'ДЕТАЛЬ 2' }),
+  };
+  const TONES = { full: 1, d1: 0.86, d2: 0.74 };
+
+  function buildCards(i) {
+    Object.values(cards).forEach((c) => c.remove());
+    cards = {};
+    const look = LOOKS[i];
+    ['full', 'd1', 'd2'].forEach((k) => {
+      const el = document.createElement('div');
+      el.className = 'card';
+      el.dataset.key = k;
+      const src = photoSrc(look[k]);
+      if (src) {
+        el.innerHTML = `<img src="${src}" alt="" style="object-position:${photoPos(look[k])}" decoding="async">`;
+      } else {
+        const t = LABELS[k](i);
+        const bg = shade(look.color, TONES[k]);
+        el.innerHTML = `<div class="ph" style="--ph:${bg};color:${inkFor(bg)}"><span class="ph-big">${t.big}</span><span class="ph-lbl">${t.lbl}</span></div>`;
+      }
+      el.addEventListener('click', () => {
+        if (suppressClick || k === mainKey) return;
+        haptic.tap();
+        mainKey = k;
+        layout(true);
+      });
+      stage.insertBefore(el, frameMain);
+      cards[k] = el;
+    });
+  }
+
+  // раскладка Б: большой кадр слева, две детали столбиком справа
+  function layout(animate) {
+    const W = stage.clientWidth, H = stage.clientHeight;
+    const gap = 8;
+    const smallW = Math.round(W * 0.29);
+    const mainW = W - smallW - gap;
+    const smallH = (H - gap) / 2;
+    const order = mainKey === 'full' ? ['full', 'd1', 'd2'] : mainKey === 'd1' ? ['d1', 'full', 'd2'] : ['d2', 'full', 'd1'];
+    const rects = [
+      { l: 0, t: 0, w: mainW, h: H },
+      { l: mainW + gap, t: 0, w: smallW, h: smallH },
+      { l: mainW + gap, t: smallH + gap, w: smallW, h: smallH },
+    ];
+    order.forEach((k, idx) => {
+      const c = cards[k]; if (!c) return;
+      if (!animate) c.style.transition = 'none';
+      const r = rects[idx];
+      Object.assign(c.style, { left: r.l + 'px', top: r.t + 'px', width: r.w + 'px', height: r.h + 'px' });
+      c.classList.toggle('is-main', idx === 0);
+      c.classList.toggle('is-small', idx !== 0);
+      if (!animate) { void c.offsetWidth; c.style.transition = ''; }
+    });
+    if (!animate) frameMain.style.transition = 'none';
+    Object.assign(frameMain.style, { left: '0px', top: '0px', width: mainW + 'px', height: H + 'px' });
+    if (!animate) { void frameMain.offsetWidth; frameMain.style.transition = ''; }
+  }
+  window.addEventListener('resize', () => { if ($('channel').classList.contains('active')) layout(false); });
+
+  function applyChannelChrome(i) {
+    const look = LOOKS[i];
+    const root = document.documentElement.style;
+    root.setProperty('--ch', look.color);
+    root.setProperty('--ch-ink', inkFor(look.color));
+    $('panelCh').textContent = `CH ${pad(i + 1)} / ${pad(LOOKS.length)}`;
+    $('panelName').textContent = look.name;
+  }
+
+  async function enterChannel(i, opts = {}) {
+    current = (i + LOOKS.length) % LOOKS.length;
+    watched = current;
+    mainKey = 'full';
+    applyChannelChrome(current);
+    buildCards(current);
+    layout(false);
+    if (opts.signal !== false) {
+      osd('NO SIGNAL', `channel ${current + 1}`);
+      await tuneIn();
+    }
+    osd(`CH ${pad(current + 1)}`, `channel ${current + 1}`);
+  }
+
+  function openChannel(i) {
+    if (stack[stack.length - 1] !== 'channel') go('channel');
+    enterChannel(i);
+    flashOSD(i);
+  }
+
+  async function switchChannel(dir) {
+    if (busy) return;
+    busy = true;
+    haptic.bump();
+    await staticBurst(240);
+    const next = current + dir;
+    enterChannel(next);
+    flashOSD((next + LOOKS.length) % LOOKS.length);
+    await sleep(300);
+    busy = false;
+  }
+
+  $('nextBtn').addEventListener('click', () => switchChannel(1));
+  $('prevBtn').addEventListener('click', () => switchChannel(-1));
+
+  // свайп по фото = переключение канала
+  let sx = 0, sy = 0, st = 0, suppressClick = false;
+  stage.addEventListener('touchstart', (e) => { const t = e.touches[0]; sx = t.clientX; sy = t.clientY; st = Date.now(); suppressClick = false; }, { passive: true });
+  stage.addEventListener('touchend', (e) => {
+    const t = e.changedTouches[0];
+    const dx = t.clientX - sx, dy = t.clientY - sy;
+    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5 && Date.now() - st < 700) {
+      suppressClick = true;
+      setTimeout(() => { suppressClick = false; }, 350);
+      switchChannel(dx < 0 ? 1 : -1);
+    }
+  }, { passive: true });
+
+  /* ---------------- эффекты: помехи, сигнал, OSD ---------------- */
+  function drawNoise(ctx, w, h, strength) {
+    ctx.clearRect(0, 0, w, h);
+    // зерно
+    const g = Math.floor(w * h * 0.035 * strength);
+    for (let i = 0; i < g; i++) {
+      const v = Math.random() > 0.5 ? 255 : 0;
+      ctx.fillStyle = `rgba(${v},${v},${v},${0.35 + Math.random() * 0.5})`;
+      ctx.fillRect(Math.random() * w, Math.random() * h, 1 + Math.random() * 2, 1);
+    }
+    // полосы
+    const bars = 6 + Math.floor(Math.random() * 8);
+    for (let i = 0; i < bars; i++) {
+      const c = PALETTE[Math.floor(Math.random() * PALETTE.length)];
+      ctx.globalAlpha = (0.15 + Math.random() * 0.7) * strength;
+      ctx.fillStyle = c;
+      const bh = Math.random() < 0.7 ? 1 + Math.random() * 4 : 6 + Math.random() * h * 0.08;
+      ctx.fillRect(-10 + Math.random() * 20, Math.random() * h, w + 20, bh);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function runCanvas(canvas, ms, opts = {}) {
+    return new Promise((resolve) => {
+      if (reduceMotion) { resolve(); return; }
+      const scale = 0.5; // пониженное разрешение = более «телевизионное» зерно
+      const w = Math.max(1, Math.floor(canvas.clientWidth * scale));
+      const h = Math.max(1, Math.floor(canvas.clientHeight * scale));
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      canvas.classList.add('on');
+      const t0 = performance.now();
+      (function frame(t) {
+        const p = (t - t0) / ms;
+        if (opts.fill) { ctx.fillStyle = '#000'; }
+        drawNoise(ctx, w, h, opts.fade ? Math.max(0.15, 1 - p) : 1);
+        if (opts.dim) { ctx.globalAlpha = 0.35; ctx.fillStyle = '#000'; ctx.fillRect(0, 0, w, h); ctx.globalAlpha = 1; }
+        if (p < 1) requestAnimationFrame(frame);
+        else { canvas.classList.remove('on'); resolve(); }
+      })(t0);
+    });
+  }
+
+  // «ловим сигнал»: фото в дизере + помехи, потом проявляется
+  async function tuneIn() {
+    stage.classList.add('tuning');
+    await runCanvas($('signal'), reduceMotion ? 1 : 700, { fade: true });
+    stage.classList.remove('tuning');
+  }
+  async function staticBurst(ms) {
+    const c = $('static');
+    c.style.background = 'rgba(0,0,0,.55)';
+    await runCanvas(c, ms);
+    c.style.background = '';
+  }
+  let osdTimer = null;
+  function flashOSD(i) {
+    const el = $('osdBig');
+    el.textContent = `CH ${pad(i + 1)}`;
+    el.classList.add('on');
+    clearTimeout(osdTimer);
+    osdTimer = setTimeout(() => el.classList.remove('on'), 1100);
+  }
+
+  /* ---------------- старт ---------------- */
+  async function boot() {
+    tgSetup();
+    stack = ['splash'];
+    show('splash');
+    await splash();
+
+    // ссылка вида t.me/<бот>/<app>?startapp=ch02 открывает сразу нужный канал
+    const param = (inTG && tg.initDataUnsafe && tg.initDataUnsafe.start_param) || location.hash.replace('#', '');
+    const deep = LOOKS.findIndex((l) => l.id === param);
+
+    stack = ['cover'];
+    show('cover');
+    if (deep >= 0) {
+      stack = ['cover', 'guide'];
+      openChannel(deep);
+    }
+  }
+  boot();
+})();
