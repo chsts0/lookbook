@@ -171,17 +171,26 @@ ul { list-style: none; }
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   padding: 12px 20px calc(24px + var(--sab));
 }
-.logo { width: min(300px, 78vw); margin-top: 8px; }
+.logo { width: min(300px, 78vw); }
 .logo-svg { display: block; width: 100%; height: auto; overflow: visible; }
 .logo-svg .tv { fill: var(--tv); transition: fill .4s; }
 .title-row {
   width: 100%; margin-top: 34px;
-  display: flex; align-items: center; justify-content: space-between;
+  display: flex; align-items: center; justify-content: center;
 }
 .title { font-family: var(--dela); font-weight: 400; font-size: 40px; line-height: 1; color: var(--yellow); letter-spacing: -.01em; }
-.chevs { display: flex; flex: none; gap: 4px; }
-.chevs svg { width: 20px; height: 20px; display: block; }
-.chevs-r svg { transform: scaleX(-1); }
+/* стрелки из гайда: раскиданы вокруг лого, смотрят на него, полупрозрачные */
+.logo-wrap { position: relative; margin-top: 8px; }
+.logo-wrap .logo { margin-top: 0; position: relative; z-index: 1; }
+.arrows { position: absolute; inset: 0; pointer-events: none; color: #fff; }
+.arw { position: absolute; display: block; }
+.a1 { width: 22px; height: 22px; left: -30px; top: -44px; opacity: .35; }                              /* ↘ */
+.a2 { width: 18px; height: 18px; right: -28px; top: -30px; opacity: .3; transform: scaleX(-1); }     /* ↙ */
+.a3 { width: 16px; height: 16px; left: -36px; top: 64%; opacity: .22; transform: rotate(-45deg); }   /* → */
+.a4 { width: 20px; height: 20px; right: -34px; top: 72%; opacity: .25; transform: scaleX(-1) rotate(-45deg); } /* ← */
+.a5 { width: 14px; height: 14px; left: 46%; top: -62px; opacity: .2; transform: rotate(45deg); }    /* ↓ */
+.a6 { width: 16px; height: 16px; right: 18%; bottom: -26px; opacity: .2; transform: rotate(180deg); } /* ↖ */
+@media (max-height: 700px) { .a2, .a5 { display: none; } }
 .intro { margin-top: 28px; max-width: 330px; text-align: center; font-size: 13px; line-height: 1.55; }
 .cta {
   margin-top: 36px; width: 100%; max-width: 390px; height: 58px;
@@ -234,7 +243,7 @@ ul { list-style: none; }
 .stage {
   position: relative; flex: 1; min-height: 0;
   transition: opacity .16s ease;
-  margin: 8px 16px 6px;
+  margin: 8px 16px 16px;
   touch-action: pan-y;
 }
 .card {
