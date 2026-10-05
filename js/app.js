@@ -266,7 +266,7 @@
     const el = $('panelName');
     el.style.fontSize = '';
     let size = parseFloat(getComputedStyle(el).fontSize);
-    while (el.scrollWidth > el.clientWidth + 1 && size > 20) { size -= 1; el.style.fontSize = size + 'px'; }
+    while (el.scrollWidth > el.clientWidth && size > 20) { size = Math.floor(size - 1); el.style.fontSize = size + 'px'; }
   }
 
   function applyChannelChrome(stop) {
