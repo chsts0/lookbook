@@ -320,11 +320,22 @@
   async function jumpTo(si) {
     if (busy) return;
     busy = true;
-    haptic.bump();
-    await staticBurst(240);
-    enterChannel(si);
-    flashOSD(STOPS[(si + STOPS.length) % STOPS.length]);
-    await sleep(300);
+    const next = (si + STOPS.length) % STOPS.length;
+    if (STOPS[next].ci === STOPS[cur].ci) {
+      // тот же канал, другой человек: без помех и без большой цифры канала
+      haptic.tap();
+      stage.classList.add('swap');
+      await sleep(170);
+      enterChannel(next, { signal: false });
+      stage.classList.remove('swap');
+      await sleep(180);
+    } else {
+      haptic.bump();
+      await staticBurst(240);
+      enterChannel(next);
+      flashOSD(STOPS[next]);
+      await sleep(300);
+    }
     busy = false;
   }
   const switchChannel = (dir) => jumpTo(cur + dir);
@@ -403,7 +414,7 @@
   let osdTimer = null;
   function flashOSD(stop) {
     const el = $('osdBig');
-    el.innerHTML = `CH ${pad(stop.ci + 1)}${stop.si >= 0 ? ' ' + ICON[personOf(stop).sex](stop.si === 0 ? 26 : 32) : ''}`;
+    el.textContent = `CH ${pad(stop.ci + 1)}`;
     el.classList.add('on');
     clearTimeout(osdTimer);
     osdTimer = setTimeout(() => el.classList.remove('on'), 1100);
