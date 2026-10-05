@@ -179,8 +179,8 @@ ul { list-style: none; }
   display: flex; align-items: center; justify-content: space-between;
 }
 .title { font-family: var(--dela); font-weight: 400; font-size: 40px; line-height: 1; color: var(--yellow); letter-spacing: -.01em; }
-.chevs { display: flex; flex: none; }
-.chevs svg { width: 22px; height: 22px; display: block; margin-right: -1px; }
+.chevs { display: flex; flex: none; gap: 4px; }
+.chevs svg { width: 20px; height: 20px; display: block; }
 .chevs-r svg { transform: scaleX(-1); }
 .intro { margin-top: 28px; max-width: 330px; text-align: center; font-size: 13px; line-height: 1.55; }
 .cta {
@@ -233,6 +233,7 @@ ul { list-style: none; }
 .screen-channel { display: flex; flex-direction: column; }
 .stage {
   position: relative; flex: 1; min-height: 0;
+  transition: opacity .16s ease;
   margin: 8px 16px 6px;
   touch-action: pan-y;
 }
@@ -244,6 +245,9 @@ ul { list-style: none; }
 }
 .card img { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
 .card.is-small { cursor: pointer; }
+/* смена девушка ↔ парень внутри канала: мягкое затухание без помех */
+.stage.swap { opacity: 0; }
+
 /* «ловим сигнал»: точечный дизер поверх фото, пока идут помехи */
 .card::before {
   content: ''; position: absolute; inset: 0; z-index: 2; pointer-events: none;
