@@ -30,6 +30,18 @@
   const haptic = {
     tap() { try { tg && tg.HapticFeedback && tg.HapticFeedback.selectionChanged(); } catch (e) {} },
     bump() { try { tg && tg.HapticFeedback && tg.HapticFeedback.impactOccurred('light'); } catch (e) {} },
+    heavy() {
+      try {
+        if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred('heavy');
+        else if (navigator.vibrate) navigator.vibrate(60);
+      } catch (e) {}
+    },
+    error() {
+      try {
+        if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('error');
+        else if (navigator.vibrate) navigator.vibrate([80, 40, 80]);
+      } catch (e) {}
+    },
   };
 
   /* ---------------- утилиты цвета ---------------- */
@@ -341,12 +353,97 @@
     osdTimer = setTimeout(() => el.classList.remove('on'), 1100);
   }
 
+  /* ---------------- пасхалка: сломанный тв ----------------
+     Встряхнуть телефон (или долго держать палец на плашке сверху / на лого):
+     экран глючит, цвета разъезжаются, TV в лого мигает всей палитрой, телефон вибрирует. */
+  let glitching = false;
+  async function glitch() {
+    if (glitching || reduceMotion) return;
+    glitching = true;
+    const root = document.documentElement;
+    const plateWas = $('plate').textContent;
+    const chWas = getComputedStyle(root).getPropertyValue('--ch').trim();
+    const tvWas = getComputedStyle(root).getPropertyValue('--tv').trim();
+    osd('SIGNAL LOST');
+    document.body.classList.add('glitch');
+    haptic.error();
+    // вибро-очередь: тряска «телевизора»
+    const buzz = [120, 260, 380, 560, 700, 900];
+    buzz.forEach((t) => setTimeout(haptic.heavy, t));
+    // цвета мигают всей палитрой
+    let k = 0;
+    const colorTimer = setInterval(() => {
+      const c = PALETTE[k++ % PALETTE.length];
+      root.style.setProperty('--ch', c);
+      root.style.setProperty('--ch-ink', inkFor(c));
+      root.style.setProperty('--tv', c);
+    }, 70);
+    await runCanvas($('static'), 1300, { fade: true });
+    clearInterval(colorTimer);
+    root.style.setProperty('--ch', chWas);
+    root.style.setProperty('--ch-ink', inkFor(chWas || '#FEFB54'));
+    root.style.setProperty('--tv', tvWas || PALETTE[1]);
+    document.body.classList.remove('glitch');
+    osd(plateWas);
+    haptic.bump();
+    setTimeout(() => { glitching = false; }, 800);
+  }
+
+  // детектор тряски: резкие рывки по осям 3 раза за 0.8 с
+  let last = null, peaks = [];
+  function onAccel(x, y, z) {
+    if (last) {
+      const jerk = Math.abs(x - last.x) + Math.abs(y - last.y) + Math.abs(z - last.z);
+      if (jerk > 22) {
+        const now = Date.now();
+        peaks = peaks.filter((t) => now - t < 800);
+        if (!peaks.length || now - peaks[peaks.length - 1] > 60) peaks.push(now);
+        if (peaks.length >= 3) { peaks = []; glitch(); }
+      }
+    }
+    last = { x, y, z };
+  }
+  function setupShake() {
+    try {
+      // в телеге (Bot API 8.0+) есть свой акселерометр, без системных запросов
+      if (inTG && tg.isVersionAtLeast('8.0') && tg.Accelerometer) {
+        tg.onEvent('accelerometerChanged', () => onAccel(tg.Accelerometer.x, tg.Accelerometer.y, tg.Accelerometer.z));
+        tg.Accelerometer.start({ refresh_rate: 60 });
+        return;
+      }
+    } catch (e) { /* падаем на обычный devicemotion */ }
+    window.addEventListener('devicemotion', (e) => {
+      const a = e.accelerationIncludingGravity;
+      if (a && a.x != null) onAccel(a.x, a.y, a.z);
+    });
+  }
+  // на iOS в обычном браузере датчик надо разрешить по тапу
+  function askMotionPermission() {
+    if (inTG) return;
+    const D = window.DeviceMotionEvent;
+    if (D && typeof D.requestPermission === 'function') { D.requestPermission().catch(() => {}); }
+  }
+  document.addEventListener('click', askMotionPermission, { once: true });
+
+  // долгое нажатие: плашка сверху и лого (работает и на компе)
+  function longPress(el, ms = 650) {
+    let t = null;
+    const start = () => { t = setTimeout(glitch, ms); };
+    const stop = () => { clearTimeout(t); };
+    el.addEventListener('pointerdown', start);
+    ['pointerup', 'pointerleave', 'pointercancel'].forEach((ev) => el.addEventListener(ev, stop));
+    el.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
+  longPress($('plate'));
+  longPress(document.querySelector('.logo'));
+
   /* ---------------- старт ---------------- */
   async function boot() {
     tgSetup();
     stack = ['splash'];
     show('splash');
     await splash();
+    setupShake();
 
     // ссылка вида t.me/<бот>/<app>?startapp=ch02 открывает сразу нужный канал
     const param = (inTG && tg.initDataUnsafe && tg.initDataUnsafe.start_param) || location.hash.replace('#', '');
