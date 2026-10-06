@@ -232,8 +232,8 @@
       stage.insertBefore(el, frameMain);
       cards.push(el);
     });
-    bars.innerHTML = shots.map(() => '<span class="bar"><i></i></span>').join('');
-    fills = [...bars.querySelectorAll('i')];
+    bars.innerHTML = shots.map(() => '<span class="prog-bar"><b></b></span>').join('');
+    fills = [...bars.querySelectorAll('b')];
   }
 
   function setFill() {
