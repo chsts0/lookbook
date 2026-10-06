@@ -114,9 +114,10 @@
   async function splash() {
     osd('NO SIGNAL', 'channel 0');
     const urls = [];
-    STOPS.forEach((st) => { const p = personOf(st); ['full', 'd1', 'd2'].forEach((k) => { const s = photoSrc(p[k]); if (s) urls.push(s); }); });
-    // сначала грузим первый канал, остальные догружаются фоном
-    const first = urls.slice(0, 3);
+    let firstN = 0;
+    STOPS.forEach((st, n) => { shotsOf(personOf(st)).forEach((ph) => { const s = photoSrc(ph); if (s) { urls.push(s); if (n === 0) firstN++; } }); });
+    // сначала грузим первого человека, остальные догружаются фоном
+    const first = urls.slice(0, firstN);
     let done = 0;
     const total = Math.max(first.length, 1);
     const ring = $('ringFg'), pct = $('ringPct');
@@ -139,7 +140,7 @@
       requestAnimationFrame(tick);
     });
     await Promise.all(loads);
-    urls.slice(3).forEach((u) => { const im = new Image(); im.src = u; });
+    urls.slice(firstN).forEach((u) => { const im = new Image(); im.src = u; });
     await sleep(180);
   }
 
@@ -169,10 +170,11 @@
       const ink = inkFor(l.color);
       const people = l.duo && l.duo.length ? l.duo : [l];
       const thumbs = people.map((p) => {
-        const src = photoSrc(p.full);
+        const cover = shotsOf(p)[0];
+        const src = photoSrc(cover);
         const tag = p.sex ? `<span class="g-sex">${ICON[p.sex](p.sex === 'f' ? 8 : 10)}</span>` : '';
         return `<span class="g-half">${src
-          ? `<img src="${src}" alt="" style="object-position:${photoPos(p.full)}" loading="lazy">`
+          ? `<img src="${src}" alt="" style="object-position:${photoPos(cover)}" loading="lazy">`
           : `<span class="ph" style="--ph:${shade(l.color, p.sex === 'm' ? 0.8 : 1)};color:${ink}">${people.length > 1 ? '' : `<span class="ph-lbl">CH ${pad(i + 1)}</span>`}</span>`}${tag}</span>`;
       }).join('');
       const marks = people.length > 1
@@ -189,78 +191,88 @@
     });
   }
 
-  /* ---------------- 04 канал ---------------- */
+  /* ---------------- 04 канал: кадры как сторис ----------------
+     4 фото на человека. Кадр висит DUR мс, полоска заполняется.
+     Сам долистал до конца = следующий человек / канал. Руками (тап, свайп по фото) = по кругу.
+     Зажал палец = пауза. Свайп по панели снизу = каналы. */
+  const DUR = 4000;
+  const HINT_KEY = 'psvt_hint_v1';
   const stage = $('stage');
   const frameMain = $('frameMain');
+  const bars = $('bars');
+  const camChip = $('camChip');
   let cur = 0;      // индекс в STOPS
   let current = 0;  // индекс канала в LOOKS
-  let mainKey = 'full';
-  let cards = {};
-  let busy = false;
+  let cards = [];
+  let fills = [];
+  let shot = 0, elapsed = 0;
+  let busy = false, tuning = false, holding = false, hintOn = false;
 
-  const LABELS = {
-    full: (i, sex) => ({ big: `CH ${pad(i + 1)}${sex ? ' ' + ICON[sex](sex === 'f' ? 14 : 17) : ''}`, lbl: 'ПОЛНЫЙ РОСТ' + (sex ? ' · ' + SEX_LABEL[sex] : '') }),
-    d1: () => ({ big: '01', lbl: 'ДЕТАЛЬ 1' }),
-    d2: () => ({ big: '02', lbl: 'ДЕТАЛЬ 2' }),
-  };
-  const TONES = { full: 1, d1: 0.86, d2: 0.74 };
+  const shotsOf = (p) => (p.photos && p.photos.length ? p.photos : [p.full, p.d1, p.d2].filter((x) => x !== undefined));
+  const TONES = [1, 0.88, 0.76, 0.64];
 
   function buildCards(stop) {
-    Object.values(cards).forEach((c) => c.remove());
-    cards = {};
+    cards.forEach((c) => c.remove());
+    cards = [];
     const i = stop.ci;
     const look = LOOKS[i];
     const person = personOf(stop);
-    ['full', 'd1', 'd2'].forEach((k) => {
+    const shots = shotsOf(person);
+    shots.forEach((ph, k) => {
       const el = document.createElement('div');
       el.className = 'card';
-      el.dataset.key = k;
-      const src = photoSrc(person[k]);
+      const src = photoSrc(ph);
       if (src) {
-        el.innerHTML = `<img src="${src}" alt="" style="object-position:${photoPos(person[k])}" decoding="async">`;
+        el.innerHTML = `<img src="${src}" alt="" style="object-position:${photoPos(ph)}" decoding="async">`;
       } else {
-        const t = LABELS[k](i, person.sex);
-        const bg = shade(look.color, TONES[k] * (person.sex === 'm' ? 0.88 : 1));
-        el.innerHTML = `<div class="ph" style="--ph:${bg};color:${inkFor(bg)}"><span class="ph-big">${t.big}</span><span class="ph-lbl">${t.lbl}</span></div>`;
+        const bg = shade(look.color, TONES[k % TONES.length] * (person.sex === 'm' ? 0.9 : 1));
+        const sex = person.sex ? ' · ' + SEX_LABEL[person.sex] : '';
+        el.innerHTML = `<div class="ph" style="--ph:${bg};color:${inkFor(bg)}"><span class="ph-big">${pad(k + 1)}</span><span class="ph-lbl">КАДР ${k + 1}${sex}</span></div>`;
       }
-      el.addEventListener('click', () => {
-        if (suppressClick || k === mainKey) return;
-        haptic.tap();
-        mainKey = k;
-        layout(true);
-      });
       stage.insertBefore(el, frameMain);
-      cards[k] = el;
+      cards.push(el);
     });
+    bars.innerHTML = shots.map(() => '<span class="bar"><i></i></span>').join('');
+    fills = [...bars.querySelectorAll('i')];
   }
 
-  // раскладка Б: большой кадр слева, две детали столбиком справа
-  function layout(animate) {
-    const W = stage.clientWidth, H = stage.clientHeight;
-    const gap = 8;
-    const smallW = Math.round(W * 0.29);
-    const mainW = W - smallW - gap;
-    const smallH = (H - gap) / 2;
-    const order = mainKey === 'full' ? ['full', 'd1', 'd2'] : mainKey === 'd1' ? ['d1', 'full', 'd2'] : ['d2', 'full', 'd1'];
-    const rects = [
-      { l: 0, t: 0, w: mainW, h: H },
-      { l: mainW + gap, t: 0, w: smallW, h: smallH },
-      { l: mainW + gap, t: smallH + gap, w: smallW, h: smallH },
-    ];
-    order.forEach((k, idx) => {
-      const c = cards[k]; if (!c) return;
-      if (!animate) c.style.transition = 'none';
-      const r = rects[idx];
-      Object.assign(c.style, { left: r.l + 'px', top: r.t + 'px', width: r.w + 'px', height: r.h + 'px' });
-      c.classList.toggle('is-main', idx === 0);
-      c.classList.toggle('is-small', idx !== 0);
-      if (!animate) { void c.offsetWidth; c.style.transition = ''; }
-    });
-    if (!animate) frameMain.style.transition = 'none';
-    Object.assign(frameMain.style, { left: '0px', top: '0px', width: mainW + 'px', height: H + 'px' });
-    if (!animate) { void frameMain.offsetWidth; frameMain.style.transition = ''; }
+  function setFill() {
+    const p = Math.min(1, elapsed / DUR);
+    fills.forEach((f, k) => { f.style.transform = `scaleX(${k < shot ? 1 : k === shot ? p : 0})`; });
   }
-  window.addEventListener('resize', () => { if ($('channel').classList.contains('active')) layout(false); });
+
+  function showShot(k) {
+    const n = cards.length || 1;
+    shot = (k + n) % n;
+    elapsed = 0;
+    cards.forEach((c, j) => c.classList.toggle('on', j === shot));
+    camChip.textContent = `CAM ${shot + 1}/${n}`;
+    setFill();
+  }
+
+  // ручное листание: по кругу
+  function step(dir) {
+    if (busy || tuning) return;
+    showShot(shot + dir);
+  }
+
+  // таймер
+  const onChannel = () => $('channel').classList.contains('active');
+  const paused = () => holding || hintOn || tuning || busy || document.hidden || !onChannel();
+  let lastT = 0;
+  function loop(t) {
+    requestAnimationFrame(loop);
+    const dt = lastT ? Math.min(250, t - lastT) : 0;
+    lastT = t;
+    if (paused() || !cards.length) return;
+    elapsed += dt;
+    setFill();
+    if (elapsed >= DUR) {
+      if (shot < cards.length - 1) showShot(shot + 1);
+      else { elapsed = 0; jumpTo(cur + 1); } // сам долистал: дальше по эфиру
+    }
+  }
+  requestAnimationFrame(loop);
 
   function fitName() {
     const el = $('panelName');
@@ -300,15 +312,17 @@
     const stop = STOPS[cur];
     current = stop.ci;
     watched = current;
-    mainKey = 'full';
     applyChannelChrome(stop);
     buildCards(stop);
-    layout(false);
+    showShot(0);
     if (opts.signal !== false) {
+      tuning = true;
       osd('NO SIGNAL', `channel ${current + 1}`);
       await tuneIn();
+      tuning = false;
     }
     osd(`CH ${pad(current + 1)}`, `channel ${current + 1}`);
+    maybeHint();
   }
 
   function openStop(si) {
@@ -343,18 +357,61 @@
   $('nextBtn').addEventListener('click', () => switchChannel(1));
   $('prevBtn').addEventListener('click', () => switchChannel(-1));
 
-  // свайп по фото = переключение канала
-  let sx = 0, sy = 0, st = 0, suppressClick = false;
-  stage.addEventListener('touchstart', (e) => { const t = e.touches[0]; sx = t.clientX; sy = t.clientY; st = Date.now(); suppressClick = false; }, { passive: true });
-  stage.addEventListener('touchend', (e) => {
+  // фото: тап слева/справа, свайп = кадры, удержание = пауза
+  let pd = null, holdT = null;
+  stage.addEventListener('pointerdown', (e) => {
+    if (!e.isPrimary) return;
+    pd = { x: e.clientX, y: e.clientY };
+    clearTimeout(holdT);
+    holdT = setTimeout(() => { holding = true; }, 220);
+  });
+  function pointerEnd(e, cancel) {
+    clearTimeout(holdT);
+    const wasHold = holding;
+    holding = false;
+    const d = pd; pd = null;
+    if (!d || cancel) return;
+    const dx = e.clientX - d.x, dy = e.clientY - d.y;
+    if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 1.3) { step(dx < 0 ? 1 : -1); return; }
+    if (wasHold || Math.hypot(dx, dy) > 12) return;
+    const r = stage.getBoundingClientRect();
+    step(e.clientX - r.left < r.width * 0.33 ? -1 : 1);
+  }
+  stage.addEventListener('pointerup', (e) => pointerEnd(e));
+  stage.addEventListener('pointercancel', (e) => pointerEnd(e, true));
+  stage.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  // свайп по панели снизу = каналы
+  const panel = $('panel');
+  let px = 0, py = 0, pt = 0;
+  panel.addEventListener('touchstart', (e) => { const t = e.touches[0]; px = t.clientX; py = t.clientY; pt = Date.now(); }, { passive: true });
+  panel.addEventListener('touchend', (e) => {
     const t = e.changedTouches[0];
-    const dx = t.clientX - sx, dy = t.clientY - sy;
-    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5 && Date.now() - st < 700) {
-      suppressClick = true;
-      setTimeout(() => { suppressClick = false; }, 350);
-      switchChannel(dx < 0 ? 1 : -1);
-    }
+    const dx = t.clientX - px, dy = t.clientY - py;
+    if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 1.3 && Date.now() - pt < 800) switchChannel(dx < 0 ? 1 : -1);
   }, { passive: true });
+
+  // подсказка при первом входе в канал
+  function maybeHint() {
+    let seen = false;
+    try { seen = localStorage.getItem(HINT_KEY) === '1'; } catch (e) {}
+    if (seen || hintOn) return;
+    hintOn = true;
+    document.getElementById('channel').classList.add('hint-on');
+  }
+  function hideHint(e) {
+    if (!hintOn) return;
+    if (e) { e.stopPropagation(); e.preventDefault(); }
+    hintOn = false;
+    elapsed = 0; setFill();
+    document.getElementById('channel').classList.remove('hint-on');
+    try { localStorage.setItem(HINT_KEY, '1'); } catch (err) {}
+  }
+  document.querySelectorAll('.hint').forEach((h) => {
+    h.addEventListener('pointerdown', hideHint);
+    h.addEventListener('pointerup', (e) => e.stopPropagation());
+    h.addEventListener('click', (e) => { e.stopPropagation(); e.preventDefault(); });
+  });
 
   /* ---------------- эффекты: помехи, сигнал, OSD ---------------- */
   function drawNoise(ctx, w, h, strength) {
