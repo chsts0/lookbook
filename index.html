@@ -97,13 +97,22 @@
   <!-- 04 · КАНАЛ -->
   <section class="screen screen-channel" id="channel" aria-label="Канал">
     <div class="stage" id="stage">
-      <!-- карточки: полный рост + 2 детали, рисуются из app.js -->
+      <!-- кадры (4 фото на человека) рисуются из app.js -->
       <div class="frame-main" id="frameMain" aria-hidden="true"></div>
-      <span class="rec" aria-hidden="true"><i></i>REC</span>
+      <div class="bars" id="bars" aria-hidden="true"></div>
+      <span class="cam" id="camChip" aria-live="polite">CAM 1/4</span>
+      <div class="hint hint-stage" aria-hidden="true">
+        <span class="hint-line"></span>
+        <span class="hint-t hint-top">‹ свайп по фото = кадры ›</span>
+        <span class="hint-t hint-l">‹ тап<br>назад</span>
+        <span class="hint-t hint-r">тап ›<br>дальше</span>
+        <span class="hint-t hint-bot">зажми = пауза</span>
+      </div>
       <canvas class="signal" id="signal" aria-hidden="true"></canvas>
       <div class="osd-big" id="osdBig" aria-hidden="true"></div>
     </div>
     <div class="panel" id="panel">
+      <div class="hint hint-panel" aria-hidden="true"><span class="hint-t">‹ свайп по панели = каналы ›</span></div>
       <div class="panel-info">
         <div class="panel-ch" id="panelCh">CH 01 / 08</div>
         <div class="panel-sex" id="panelSex" role="tablist" aria-label="Образ"></div>
