@@ -357,13 +357,22 @@
   $('nextBtn').addEventListener('click', () => switchChannel(1));
   $('prevBtn').addEventListener('click', () => switchChannel(-1));
 
-  // фото: тап слева/справа, свайп = кадры, удержание = пауза
-  let pd = null, holdT = null;
+  // фото: тап слева/справа, свайп = кадры, удержание = пауза, два пальца = зум
+  let pd = null, holdT = null, pinch = null;
+  const pts = new Map();
   stage.addEventListener('pointerdown', (e) => {
-    if (!e.isPrimary) return;
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    try { stage.setPointerCapture(e.pointerId); } catch (err) {}
+    if (pts.size === 2) { startPinch(); return; }
+    if (pts.size > 2 || !e.isPrimary) return;
     pd = { x: e.clientX, y: e.clientY };
     clearTimeout(holdT);
     holdT = setTimeout(() => { holding = true; }, 220);
+  });
+  stage.addEventListener('pointermove', (e) => {
+    if (!pts.has(e.pointerId)) return;
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pinch) movePinch();
   });
   function pointerEnd(e, cancel) {
     clearTimeout(holdT);
@@ -377,8 +386,50 @@
     const r = stage.getBoundingClientRect();
     step(e.clientX - r.left < r.width * 0.33 ? -1 : 1);
   }
-  stage.addEventListener('pointerup', (e) => pointerEnd(e));
-  stage.addEventListener('pointercancel', (e) => pointerEnd(e, true));
+  function release(e, cancel) {
+    if (!pts.has(e.pointerId)) return;
+    pts.delete(e.pointerId);
+    if (pinch) { if (pts.size < 2) endPinch(); return; }
+    pointerEnd(e, cancel);
+  }
+  stage.addEventListener('pointerup', (e) => release(e));
+  stage.addEventListener('pointercancel', (e) => release(e, true));
+
+  // зум пальцами: фото тянется за пальцами, отпустил = плавно назад
+  const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+  const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+  function startPinch() {
+    clearTimeout(holdT);
+    pd = null;
+    holding = true; // кадры не листаются, пока пальцы на фото
+    const card = cards[shot];
+    const el = card && card.firstElementChild;
+    if (!el) return;
+    const r = card.getBoundingClientRect();
+    const [a, b] = [...pts.values()];
+    const m = mid(a, b);
+    el.style.transition = 'none';
+    el.style.transformOrigin = '0 0';
+    pinch = { el, r, d0: Math.max(dist(a, b), 1), m0: { x: m.x - r.left, y: m.y - r.top } };
+  }
+  function movePinch() {
+    const [a, b] = [...pts.values()];
+    if (!a || !b) return;
+    const sc = Math.min(4, Math.max(1, dist(a, b) / pinch.d0));
+    const m = mid(a, b);
+    const tx = m.x - pinch.r.left - sc * pinch.m0.x;
+    const ty = m.y - pinch.r.top - sc * pinch.m0.y;
+    pinch.el.style.transform = `translate(${tx}px, ${ty}px) scale(${sc})`;
+  }
+  function endPinch() {
+    const el = pinch.el;
+    pinch = null;
+    el.style.transition = 'transform .28s cubic-bezier(.2,.8,.2,1)';
+    el.style.transform = '';
+    if (!pts.size) holding = false;
+  }
+  // iOS: не даём телеге/сафари зумить всю страницу
+  document.addEventListener('gesturestart', (e) => e.preventDefault());
   stage.addEventListener('contextmenu', (e) => e.preventDefault());
 
   // свайп по панели снизу = каналы
