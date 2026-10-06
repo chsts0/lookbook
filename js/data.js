@@ -23,12 +23,12 @@ const EMPTY = () => [null, null, null];
 window.LOOKS = [
   { id: 'ch01', name: 'HIP-HOP', color: '#FEFB54',
     duo: [
-      { sex: 'f', photos: EMPTY() },
-      { sex: 'm', photos: EMPTY() },
+      { sex: 'f', photos: ['img/looks/ch01-f-1.webp', 'img/looks/ch01-f-2.webp', 'img/looks/ch01-f-3.webp'] },
+      { sex: 'm', photos: ['img/looks/ch01-m-1.webp', 'img/looks/ch01-m-2.webp', 'img/looks/ch01-m-3.webp'] },
     ] },
 
   { id: 'ch02', name: 'PAPARAZZI', color: '#01ACD0',
-    photos: EMPTY() },
+    photos: ['img/looks/ch02-1.webp', 'img/looks/ch02-2.webp', 'img/looks/ch02-3.webp'] },
 
   { id: 'ch03', name: 'CHAOS × CRAZY', color: '#E934F5',
     duo: [
