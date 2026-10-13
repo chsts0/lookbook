@@ -140,7 +140,10 @@
       requestAnimationFrame(tick);
     });
     await Promise.all(loads);
-    urls.slice(firstN).forEach((u) => { const im = new Image(); im.src = u; });
+    // остальные фото догружаем по очереди, по две за раз, чтобы не забивать канал текущему кадру
+    const rest = urls.slice(firstN);
+    const pump = () => { const u = rest.shift(); if (!u) return; const im = new Image(); im.onload = im.onerror = pump; im.src = u; };
+    pump(); pump();
     await sleep(180);
   }
 
@@ -168,7 +171,9 @@
       const li = document.createElement('li');
       const live = i === (watched < 0 ? 0 : watched);
       const ink = inkFor(l.color);
-      const people = l.duo && l.duo.length ? l.duo : [l];
+      const people = l.duo && l.duo.length ? l.duo
+        : l.who ? ['f', 'm'].map((sx) => ({ sex: sx, photos: [l.photos[Math.max(0, l.who.indexOf(sx))]] }))
+        : [l];
       const thumbs = people.map((p) => {
         const cover = shotsOf(p)[0];
         const src = photoSrc(cover);
@@ -248,6 +253,19 @@
     cards.forEach((c, j) => c.classList.toggle('on', j === shot));
     camChip.textContent = `CAM ${shot + 1}/${n}`;
     setFill();
+    updateWho();
+  }
+
+  // канал, где двое в одной ленте (ROCK STAR): значки показывают, кто в кадре
+  function updateWho() {
+    const look = LOOKS[STOPS[cur].ci];
+    if (!look || !look.who) return;
+    const who = look.who[shot] || '';
+    $('panelSex').querySelectorAll('.sex-seg').forEach((b) => {
+      const on = who.includes(b.dataset.sex);
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
   }
 
   // ручное листание: по кругу
@@ -303,6 +321,22 @@
         b.addEventListener('click', () => { if (si !== stop.si) jumpTo(stopIndex(stop.ci, si)); });
         sex.appendChild(b);
       });
+    } else if (look.who) {
+      ['f', 'm'].forEach((sx) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'sex-seg';
+        b.dataset.sex = sx;
+        b.setAttribute('role', 'tab');
+        b.setAttribute('aria-label', SEX_LABEL[sx]);
+        b.innerHTML = ICON[sx]();
+        // тап по значку = первая фотка этого человека
+        b.addEventListener('click', () => {
+          const k = look.who.indexOf(sx);
+          if (k >= 0 && !busy && !tuning) { haptic.tap(); showShot(k); }
+        });
+        sex.appendChild(b);
+      });
     }
     fitName();
   }
@@ -314,7 +348,7 @@
     watched = current;
     applyChannelChrome(stop);
     buildCards(stop);
-    showShot(0);
+    showShot(opts.shot || 0);
     if (opts.signal !== false) {
       tuning = true;
       osd('NO SIGNAL', `channel ${current + 1}`);
@@ -325,9 +359,9 @@
     maybeHint();
   }
 
-  function openStop(si) {
+  function openStop(si, shotIdx) {
     if (stack[stack.length - 1] !== 'channel') go('channel');
-    enterChannel(si);
+    enterChannel(si, { shot: shotIdx || 0 });
     flashOSD(STOPS[(si + STOPS.length) % STOPS.length]);
   }
 
@@ -622,18 +656,18 @@
 
     // ссылка вида t.me/<бот>/<app>?startapp=ch02 открывает сразу нужный канал
     const param = (inTG && tg.initDataUnsafe && tg.initDataUnsafe.start_param) || location.hash.replace('#', '');
-    let deep = -1;
+    let deep = -1, deepShot = 0;
     const m = /^(ch\d+)([fm])?$/i.exec(param || '');
     if (m) {
       const ci = LOOKS.findIndex((l) => l.id === m[1].toLowerCase());
-      if (ci >= 0) { const l = LOOKS[ci]; const si = l.duo && m[2] ? Math.max(0, l.duo.findIndex((p) => p.sex === m[2].toLowerCase())) : 0; deep = stopIndex(ci, si); }
+      if (ci >= 0) { const l = LOOKS[ci]; const si = l.duo && m[2] ? Math.max(0, l.duo.findIndex((p) => p.sex === m[2].toLowerCase())) : 0; deep = stopIndex(ci, si); if (l.who && m[2]) deepShot = Math.max(0, l.who.indexOf(m[2].toLowerCase())); }
     }
 
     stack = ['cover'];
     show('cover');
     if (deep >= 0) {
       stack = ['cover', 'guide'];
-      openStop(deep);
+      openStop(deep, deepShot);
     }
   }
   boot();
