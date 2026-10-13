@@ -13,6 +13,9 @@
   Первой всегда идёт девушка (sex: 'f'), потом парень (sex: 'm').
   title — если у человека своё название (как CHAOS / CRAZY), оно заменит name на плашке.
 
+  ДВОЕ В ОДНОЙ ЛЕНТЕ (ROCK STAR): обычный photos + who — кто на каждой фотке по порядку:
+  'f' девушка, 'm' парень, 'fm' оба. Значки на плашке подсвечиваются по who.
+
   Пока фото нет, стоит null и рисуется заглушка цвета канала.
   Фото кладём в img/looks/ и пишем путь:  'img/looks/ch01-f-1.webp',
   Сдвинуть кадрирование:                  { src: 'img/looks/ch01-f-1.webp', pos: '50% 20%' },
@@ -32,25 +35,23 @@ window.LOOKS = [
 
   { id: 'ch03', name: 'CHAOS × CRAZY', color: '#E934F5',
     duo: [
-      { sex: 'f', title: 'CHAOS', photos: EMPTY() },
-      { sex: 'm', title: 'CRAZY', photos: EMPTY() },
+      { sex: 'f', title: 'CHAOS', photos: ['img/looks/ch03-f-1.webp', 'img/looks/ch03-f-2.webp', 'img/looks/ch03-f-3.webp'] },
+      { sex: 'm', title: 'CRAZY', photos: ['img/looks/ch03-m-1.webp', 'img/looks/ch03-m-2.webp', 'img/looks/ch03-m-3.webp'] },
     ] },
 
   { id: 'ch04', name: 'POP STAR', color: '#75FB4E',
-    photos: EMPTY() },
+    photos: ['img/looks/ch04-1.webp', 'img/looks/ch04-2.webp', 'img/looks/ch04-3.webp'] },
 
   { id: 'ch05', name: 'Y2K', color: '#0001F2',
-    photos: EMPTY() },
+    photos: ['img/looks/ch05-1.webp', 'img/looks/ch05-2.webp', 'img/looks/ch05-3.webp'] },
 
   { id: 'ch06', name: 'ROCK STAR', color: '#E83224',
-    duo: [
-      { sex: 'f', photos: EMPTY() },
-      { sex: 'm', photos: EMPTY() },
-    ] },
+    photos: ['img/looks/ch06-1.webp', 'img/looks/ch06-2.webp', 'img/looks/ch06-3.webp', 'img/looks/ch06-4.webp', 'img/looks/ch06-5.webp', 'img/looks/ch06-6.webp'],
+    who: ['f', 'f', 'fm', 'fm', 'm', 'm'] },
 
   { id: 'ch07', name: 'POP-PUNK', color: '#75FB4E',
-    photos: EMPTY() },
+    photos: ['img/looks/ch07-1.webp', 'img/looks/ch07-2.webp', 'img/looks/ch07-3.webp'] },
 
   { id: 'ch08', name: 'GLAM', color: '#FFFFFF',
-    photos: EMPTY() },
+    photos: ['img/looks/ch08-1.webp', 'img/looks/ch08-2.webp', 'img/looks/ch08-3.webp'] },
 ];
